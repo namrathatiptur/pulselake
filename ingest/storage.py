@@ -274,9 +274,23 @@ def connect_with_retry(
 
 
 @contextmanager
-def open_db(db_path: Path | str | None = None, read_only: bool = False):
-    """Context manager wrapper around connect() so connections always close."""
-    con = connect(db_path, read_only=read_only)
+def open_db(
+    db_path: Path | str | None = None,
+    read_only: bool = False,
+    timeout_seconds: float = 30.0,
+):
+    """
+    Context manager that waits for the file lock and always closes.
+
+    Retrying applies to the writer as well as to readers. The dashboard opens
+    a read only connection every few seconds, and while it holds one the
+    poller cannot write. Both sides waiting their turn is what lets the
+    ingestion loop, dbt, and the dashboard all run at the same time against a
+    single embedded database.
+    """
+    con = connect_with_retry(
+        db_path, read_only=read_only, timeout_seconds=timeout_seconds
+    )
     try:
         yield con
     finally:
