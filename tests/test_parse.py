@@ -170,21 +170,54 @@ def test_parses_real_captured_feed(sample_feed_bytes, fetched_at):
     assert vehicle["trip_id"].startswith("1")
 
 
-def test_real_feed_alert_with_unparseable_trip_id_is_still_captured(
-    sample_feed_bytes, fetched_at
-):
+def test_real_feed_alert_is_captured_with_its_trip(sample_feed_bytes, fetched_at):
     """
-    The captured alert names trip 065600_7..MAIN ST34, whose id has no
-    direction letter. The alert must still be recorded: dropping it would lose
-    the only signal MTA gives that a train is delayed.
+    The alert in the captured snapshot must be recorded along with the trip it
+    names. Dropping it would lose the only signal MTA gives that a train is
+    delayed.
+
+    Asserted on shape rather than on literal values. The fixture is
+    regenerated from the live feed with `python -m tests.make_fixture`, and
+    whichever train happens to be delayed at that moment will be a different
+    one. A test that pinned the exact trip id would turn every fixture refresh
+    into a false failure.
     """
     snapshot = parse_feed(sample_feed_bytes, "1234567S", "http://mta", fetched_at)
+    alert = snapshot.alerts[0]
+
+    assert alert["trip_id"]
+    assert alert["alert_header"]
+    assert alert["entity_id"]
+    # Whether the id parses or not, the alert survives. Both outcomes are
+    # acceptable; silently losing the row is not.
+    assert alert["direction"] in ("N", "S", None)
+
+
+def test_unparseable_trip_id_keeps_the_data_that_did_parse(fetched_at, feed_builder):
+    """
+    REGRESSION: 065600_7..MAIN ST34 carries a terminal name where the
+    direction letter belongs. The direction is genuinely unrecoverable, but
+    the scheduled origin departure still is, and the first parser threw both
+    away together.
+
+    Built synthetically rather than read from the fixture, so the case stays
+    covered no matter which trains the live feed happens to be reporting.
+    """
+    payload = feed_builder(
+        alerts=[
+            {
+                "header_text": "Train delayed",
+                "informed": [{"trip_id": "065600_7..MAIN ST34"}],
+            }
+        ]
+    )
+    snapshot = parse_feed(payload, "TEST", "http://x", fetched_at)
     alert = snapshot.alerts[0]
 
     assert alert["trip_id"] == "065600_7..MAIN ST34"
     assert alert["direction"] is None
     assert alert["origin_departure_seconds"] == 39360
-    assert "delay" in (alert["alert_header"] or "").lower()
+    assert alert["alert_header"] == "Train delayed"
 
 
 def test_vehicle_and_trip_update_have_different_entity_ids(

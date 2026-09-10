@@ -1,5 +1,7 @@
 # PulseLake
 
+[![CI](https://github.com/namrathatiptur/pulselake/actions/workflows/ci.yml/badge.svg)](https://github.com/namrathatiptur/pulselake/actions/workflows/ci.yml)
+
 A working, local, end to end data pipeline over New York City's live subway feed.
 Python ingestion, DuckDB storage, dbt modelling with tests, and a Streamlit
 dashboard. No cloud account, no API key, no paid services.
@@ -26,10 +28,11 @@ when a number looks wrong.
 
 ## Quick start
 
-Requires Python 3.11 or newer. Nothing else.
+Requires Python 3.11 or newer and nothing else. Developed and run on 3.13;
+CI builds on 3.12.
 
 ```bash
-git clone <your-repo-url> pulselake && cd pulselake
+git clone https://github.com/namrathatiptur/pulselake.git && cd pulselake
 make setup
 make start
 ```
@@ -214,6 +217,13 @@ make dbt-test    # dbt: grain, nulls, accepted values, referential integrity
 make test        # pytest: parsing, retries, storage idempotency
 make freshness   # dbt source freshness against the ingestion clock
 ```
+
+Both suites run in CI on every push. Neither needs a network connection: the
+pytest suite reads a committed slice of a real feed, and the dbt job creates
+the raw tables empty and builds every model against them. Building on an empty
+schema cannot catch a wrong number, but it does catch a renamed column, a
+broken `ref`, a model that no longer compiles, and a test pointed at a column
+that does not exist, none of which should ever reach a dashboard.
 
 **Test severity is mixed on purpose.**
 

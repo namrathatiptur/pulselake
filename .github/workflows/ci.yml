@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit tests and dbt build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # These never touch the network. The captured feed fixture in
+      # tests/fixtures is committed for exactly this reason: CI stays
+      # deterministic and does not fail because MTA had a bad afternoon.
+      - name: Run unit tests
+        run: pytest
+
+      # Create the raw tables with no rows in them, then build every dbt model
+      # and run every dbt test against the empty schema. That will not catch a
+      # wrong number, but it does catch a typo in a column name, a broken ref,
+      # a model that no longer compiles, and a test pointed at a column that
+      # does not exist. All of that is worth catching before it reaches a
+      # dashboard, and none of it needs live data.
+      - name: Create an empty warehouse schema
+        run: |
+          python - <<'PY'
+          from ingest.storage import open_db, initialize_schema
+          with open_db("ci.duckdb") as con:
+              initialize_schema(con)
+          print("schema created")
+          PY
+
+      - name: Build dbt models and run dbt tests
+        working-directory: transform
+        env:
+          PULSELAKE_DB: ../ci.duckdb
+        run: dbt build
+
+  lint:
+    name: Shell script check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck scripts/pulselake.sh
