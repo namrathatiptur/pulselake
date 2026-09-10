@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -224,17 +225,58 @@ def make_fetch_id(feed_key: str, header_timestamp: datetime | None,
     return digest[:16]
 
 
-def connect(db_path: Path | str | None = None) -> duckdb.DuckDBPyConnection:
+def connect(
+    db_path: Path | str | None = None,
+    read_only: bool = False,
+) -> duckdb.DuckDBPyConnection:
     """Open a DuckDB connection, creating the data directory if needed."""
     ensure_directories()
     path = Path(db_path) if db_path else DUCKDB_PATH
-    return duckdb.connect(str(path))
+    return duckdb.connect(str(path), read_only=read_only)
+
+
+def connect_with_retry(
+    db_path: Path | str | None = None,
+    read_only: bool = False,
+    timeout_seconds: float = 30.0,
+    poll_seconds: float = 0.5,
+) -> duckdb.DuckDBPyConnection:
+    """
+    Open a connection, waiting for another process to release the file lock.
+
+    DuckDB takes an exclusive lock on the database file. While the ingestion
+    loop holds it, no other process can open the file at all, not even read
+    only. That is a real constraint of an embedded database and it is why the
+    loop closes its connection between cycles rather than holding it open for
+    the whole run.
+
+    The gap between cycles is still only a few tens of seconds wide, so
+    readers need to be willing to wait for their turn instead of failing on
+    the first attempt. dbt gets the same behaviour from the `retries` block in
+    transform/profiles.yml.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return connect(db_path, read_only=read_only)
+        except (duckdb.IOException, duckdb.Error) as exc:
+            if "lock" not in str(exc).lower() or time.monotonic() >= deadline:
+                raise
+            if attempt == 1:
+                logger.info(
+                    "Database is locked by another process. Waiting up to %.0fs "
+                    "for it to be released.",
+                    timeout_seconds,
+                )
+            time.sleep(poll_seconds)
 
 
 @contextmanager
-def open_db(db_path: Path | str | None = None):
+def open_db(db_path: Path | str | None = None, read_only: bool = False):
     """Context manager wrapper around connect() so connections always close."""
-    con = connect(db_path)
+    con = connect(db_path, read_only=read_only)
     try:
         yield con
     finally:

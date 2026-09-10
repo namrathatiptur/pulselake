@@ -1,0 +1,138 @@
+version: 2
+
+models:
+  - name: fct_current_trains
+    description: >
+      Every train running in the newest snapshot, one row each, with its next
+      stop, its status, and whether MTA has flagged it as delayed. This is the
+      main table behind the dashboard.
+
+    columns:
+      - name: snapshot_train_key
+        description: >
+          Unique per train. If this fails, one of the left joins in the model
+          has fanned out, which is the specific failure mode that would
+          silently inflate every count on the dashboard.
+        data_tests:
+          - unique
+          - not_null
+
+      - name: route_id
+        data_tests:
+          - not_null
+
+      - name: status_label
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - "Delayed (MTA alert)"
+                - "At station"
+                - "Arriving"
+                - "In transit"
+                - "Unknown"
+
+      - name: has_delay_alert
+        data_tests:
+          - not_null
+
+      - name: next_stop_id
+        description: >
+          The first stop in the train's prediction list. For a train that is
+          STOPPED_AT a platform this is the station it is currently sitting
+          at, not the one it is heading to, because stop_index 0 means "the
+          next arrival MTA is still predicting" and the train has only just
+          arrived. Use following_stop_id when you want the next station a
+          rider would care about.
+
+      - name: following_stop_id
+        description: >
+          The stop after next_stop_id. This is the one to show a rider when
+          the train is already at a platform.
+
+      - name: minutes_to_next_stop
+        description: >
+          Minutes until the arrival at next_stop_id. Small negative values are
+          normal and mean the train arrived moments ago and MTA has not yet
+          dropped the stop from the list. Null for trains with no prediction
+          in the feed, which happens at terminals and for a few percent of
+          trains whose position and prediction disagree about which stop they
+          are at.
+
+  - name: fct_line_activity
+    description: >
+      One row per subway line in the newest snapshot: how many trains are
+      running, where they are, how many are delayed, and how clean the feed
+      was for that line.
+
+    columns:
+      - name: route_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: trains_running
+        data_tests:
+          - not_null
+          # A line in the results with zero trains would mean the aggregation
+          # produced a group with no members, which cannot happen and would
+          # indicate a bug in the model rather than a quiet night. The custom
+          # generic test is defined in macros/generic_tests.sql, written by
+          # hand rather than pulled from dbt_utils so the project has no
+          # package dependencies to install.
+          - positive_value
+
+      - name: pct_delayed
+        description: Share of this line's trains carrying an MTA delay alert.
+
+  - name: fct_prediction_drift
+    description: >
+      How far MTA's predicted arrival for a stop moved between the first and
+      last time we observed it. The project's delay proxy, and a model that is
+      only possible because snapshots are retained.
+
+    columns:
+      - name: trip_key
+        data_tests:
+          - not_null
+
+      - name: stop_id
+        data_tests:
+          - not_null
+
+      - name: observation_count
+        description: Always at least 2, enforced by the model's filter.
+        data_tests:
+          - not_null
+
+      - name: drift_seconds
+        data_tests:
+          - not_null
+
+      - name: drift_label
+        data_tests:
+          - accepted_values:
+              values: ["Losing time", "Making up time", "On plan"]
+
+  - name: dq_ingestion_health
+    description: >
+      Pipeline health, one row per snapshot. Row counts, feed quality rates,
+      and the gap since the previous snapshot. This is the model you read when
+      a number looks wrong and you need to know whether the trains changed or
+      the data did.
+
+    columns:
+      - name: fetch_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: vehicle_rows
+        data_tests:
+          - not_null
+
+      - name: pct_rows_with_reused_trip_id
+        description: >
+          Share of rows in the snapshot whose trip_id is shared with another
+          train. Expected to sit near one percent. A sharp move means
+          something changed upstream.

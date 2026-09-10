@@ -1,0 +1,26 @@
+# dbt looks for profiles.yml in the current working directory before falling
+# back to ~/.dbt, so keeping it here makes the project self contained. Clone
+# the repo, run dbt from this folder, and it works with no global setup.
+
+pulselake:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Relative to this directory, which is where dbt is run from.
+      path: "{{ env_var('PULSELAKE_DB', '../data/pulselake.duckdb') }}"
+      threads: 4
+
+      # DuckDB takes an exclusive lock on the database file, so if the
+      # ingestion loop happens to be mid write when dbt starts, the connection
+      # fails with an IOException. The loop releases its lock between cycles,
+      # so waiting a moment and trying again is all that is needed. Without
+      # this block you have to stop the poller before every dbt run.
+      retries:
+        # Attempts at the initial duckdb.connect call, which is where the
+        # lock contention shows up. dbt-duckdb backs off between attempts.
+        connect_attempts: 10
+        # Retries for a query that fails with a retryable exception.
+        query_attempts: 3
+        retryable_exceptions:
+          - "IOException"

@@ -1,0 +1,63 @@
+version: 2
+
+sources:
+  - name: pulselake_raw
+    description: >
+      Append only landing tables written by the Python ingestion loop. Values
+      are exactly as the MTA feed reported them. Nothing is cleaned here.
+    # The ingestion writes into DuckDB's default schema.
+    schema: main
+
+    # Source freshness is the cheapest data quality gate in the whole project.
+    # A stale feed looks identical to a quiet feed unless something checks the
+    # clock, so this is what turns "the dashboard says 0 delays" into
+    # "the dashboard has not received data in 40 minutes".
+    loaded_at_field: fetched_at
+    freshness:
+      warn_after: {count: 5, period: minute}
+      error_after: {count: 30, period: minute}
+
+    tables:
+      - name: raw_feed_fetches
+        description: >
+          One row per distinct snapshot published by MTA and stored by us.
+          Doubles as the ingestion audit log. poll_count above 1 means we
+          polled and got a snapshot we already had.
+        columns:
+          - name: fetch_id
+            description: sha1 of feed_key and the feed's own header timestamp.
+            data_tests: [unique, not_null]
+          - name: header_timestamp
+            description: When MTA published the snapshot, not when we fetched it.
+
+      - name: raw_vehicle_positions
+        description: >
+          Current position of each train in a snapshot. Unique on
+          (fetch_id, entity_id). NOT unique on (fetch_id, trip_id).
+        columns:
+          - name: entity_id
+            description: >
+              Position of the entity within the protobuf message. Unique
+              inside one snapshot but NOT stable across snapshots, because it
+              shifts as trains ahead of it terminate. Never join on this
+              across fetches.
+            data_tests: [not_null]
+
+      - name: raw_trip_stop_updates
+        description: >
+          One row per predicted stop for each trip. stop_index 0 is the
+          train's next stop.
+
+      - name: raw_alerts
+        description: >
+          Service alerts, one row per informed entity. NYCT publishes trip
+          level alerts with header text such as "Train delayed".
+
+      - name: ingest_errors
+        description: >
+          Failed polls. Without this table a gap in the raw tables is
+          indistinguishable from a period with no trains running.
+        # Errors are written by a different code path than fetches, so the
+        # source level freshness check above does not apply to this table.
+        loaded_at_field: null
+        freshness: null

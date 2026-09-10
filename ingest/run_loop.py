@@ -109,43 +109,50 @@ def run_forever(
         max_cycles if max_cycles is not None else "unlimited",
     )
 
-    with open_db(db_path) as con:
-        initialize_schema(con)
+    while not shutdown.stopped:
+        cycle_started = time.monotonic()
+        totals["cycles"] += 1
 
-        while not shutdown.stopped:
-            cycle_started = time.monotonic()
-            totals["cycles"] += 1
-
-            try:
+        try:
+            # The connection is opened and closed inside the loop, not around
+            # it. DuckDB takes an exclusive lock on the file, so a connection
+            # held open for the whole run would block dbt and the dashboard
+            # from opening the database at all, not even read only. Releasing
+            # it between cycles leaves the file free for the length of the
+            # sleep, which is when everything else does its work. The cost is
+            # a few milliseconds per cycle to reopen.
+            with open_db(db_path) as con:
+                initialize_schema(con)
                 counters = run_cycle(con, feeds, session=session)
-                for key in ("inserted", "duplicate", "failed", "rows"):
-                    totals[key] += counters[key]
-            except Exception:
-                # Catching bare Exception is normally a smell. Here it is the
-                # point: this is the top of a long running process, and the
-                # alternative is the loop dying on an error nobody predicted.
-                totals["failed"] += 1
-                logger.exception("Unhandled error during cycle %d", totals["cycles"])
+            for key in ("inserted", "duplicate", "failed", "rows"):
+                totals[key] += counters[key]
+        except Exception:
+            # Catching bare Exception is normally a smell. Here it is the
+            # point: this is the top of a long running process, and the
+            # alternative is the loop dying on an error nobody predicted.
+            totals["failed"] += 1
+            logger.exception("Unhandled error during cycle %d", totals["cycles"])
 
-            if max_cycles is not None and totals["cycles"] >= max_cycles:
-                logger.info("Reached max_cycles=%d. Stopping.", max_cycles)
-                break
+        if max_cycles is not None and totals["cycles"] >= max_cycles:
+            logger.info("Reached max_cycles=%d. Stopping.", max_cycles)
+            break
 
-            # Subtract the work time so cycle starts stay on a fixed cadence
-            # instead of drifting later by the duration of every cycle.
-            elapsed = time.monotonic() - cycle_started
-            remaining = interval_seconds - elapsed
-            if remaining > 0:
-                shutdown.sleep(remaining)
-            else:
-                logger.warning(
-                    "Cycle %d took %.1fs, longer than the %ds interval. "
-                    "Starting the next one immediately.",
-                    totals["cycles"],
-                    elapsed,
-                    interval_seconds,
-                )
+        # Subtract the work time so cycle starts stay on a fixed cadence
+        # instead of drifting later by the duration of every cycle.
+        elapsed = time.monotonic() - cycle_started
+        remaining = interval_seconds - elapsed
+        if remaining > 0:
+            shutdown.sleep(remaining)
+        else:
+            logger.warning(
+                "Cycle %d took %.1fs, longer than the %ds interval. "
+                "Starting the next one immediately.",
+                totals["cycles"],
+                elapsed,
+                interval_seconds,
+            )
 
+    with open_db(db_path) as con:
         stats = summarize_database(con)
 
     logger.info(

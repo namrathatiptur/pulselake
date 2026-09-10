@@ -1,0 +1,25 @@
+name: "pulselake"
+version: "0.1.0"
+config-version: 2
+
+profile: "pulselake"
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  pulselake:
+    staging:
+      # Staging models are views. They are thin renaming and typing layers
+      # over the raw tables, so materializing them as tables would duplicate
+      # the data on disk for no benefit.
+      +materialized: view
+    marts:
+      # Marts are tables. The dashboard reads them on every page load and a
+      # table means that read is a scan of a few hundred rows rather than a
+      # rerun of the whole aggregation over every snapshot ever collected.
+      +materialized: table
