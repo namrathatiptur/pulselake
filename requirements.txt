@@ -1,0 +1,22 @@
+# PulseLake local MVP dependencies.
+# Everything here is free and runs on your laptop. No cloud accounts required.
+
+# Fetching and decoding the MTA GTFS-Realtime protobuf feed
+requests==2.32.3
+gtfs-realtime-bindings==1.0.0
+protobuf==5.29.3
+
+# Local analytical database (the "lake" in PulseLake)
+duckdb==1.1.3
+
+# Transformation layer
+dbt-core==1.9.1
+dbt-duckdb==1.9.1
+
+# Dashboard
+streamlit==1.41.1
+pandas==2.2.3
+altair==5.5.0
+
+# Testing
+pytest==8.3.4

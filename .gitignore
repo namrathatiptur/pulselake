@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local data lake and logs. These are generated at runtime, not source.
+data/*.duckdb
+data/*.duckdb.wal
+logs/*.log
+
+# dbt build artifacts
+transform/target/
+transform/dbt_packages/
+transform/logs/
+.user.yml
+
+# OS noise
+.DS_Store
