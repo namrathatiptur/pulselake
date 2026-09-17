@@ -56,5 +56,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The runner's shellcheck is whatever ubuntu-latest ships, which will
+      # not always match a local install. That is the point of running it
+      # here, but it does mean `make lint` passing locally is not a
+      # guarantee, so the version is printed to make a disagreement obvious
+      # in the log rather than mysterious.
       - name: shellcheck
-        run: shellcheck scripts/pulselake.sh
+        run: |
+          shellcheck --version
+          shellcheck scripts/pulselake.sh

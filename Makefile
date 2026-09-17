@@ -9,7 +9,7 @@ DBT        := $(CURDIR)/$(VENV)/bin/dbt
 STREAMLIT  := $(VENV)/bin/streamlit
 
 .DEFAULT_GOAL := help
-.PHONY: help setup start stop restart status logs ingest loop dbt dbt-test freshness dashboard test clean reset
+.PHONY: help setup start stop restart status logs ingest loop dbt dbt-test freshness dashboard test lint clean reset
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -58,6 +58,13 @@ dashboard:  ## Run the Streamlit dashboard in the foreground
 
 test:  ## Run the Python unit tests (offline, no database needed)
 	$(PYTHON) -m pytest
+
+lint:  ## Shellcheck the runner script, the same check CI runs
+	@command -v shellcheck >/dev/null 2>&1 || { \
+		echo "shellcheck is not installed. brew install shellcheck"; exit 1; }
+	@shellcheck --version | grep version
+	shellcheck scripts/pulselake.sh
+	@echo "clean"
 
 clean:  ## Remove build artefacts, keeping the data
 	rm -rf transform/target transform/logs .pytest_cache

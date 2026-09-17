@@ -92,8 +92,18 @@ stop_one() {
 # roadmap, not step one.
 dbt_refresh_loop() {
     while true; do
-        (cd "$PROJECT_ROOT/transform" && "$DBT" build --no-print 2>&1 \
-            | grep -E "Done\.|ERROR|WARN [0-9]" || true)
+        # Runs in a subshell so the cd does not leak, and the exit status is
+        # swallowed on purpose: a failed rebuild should log and be retried on
+        # the next tick, never kill the refresh loop.
+        #
+        # Written as separate statements rather than `cd ... && dbt ... || true`
+        # because that reads as if-then-else and is not: the `|| true` would
+        # also catch a failure of the cd itself. shellcheck flags the pattern
+        # (SC2015) and it is right to.
+        (
+            cd "$PROJECT_ROOT/transform" || exit 1
+            "$DBT" build 2>&1 | grep -E "Done\.|ERROR|WARN [0-9]" || true
+        )
         sleep "$DBT_INTERVAL"
     done
 }
